@@ -1,8 +1,7 @@
 import torch
-import random
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
+import random
 from collections import deque
 
 class GameEnvironment():
