@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 from collections import deque
+import click
 
 class GameEnvironment():
 
@@ -163,7 +164,7 @@ class GameEnvironment():
         return bool((self.board[hidden] == self.MINE).all().item())
 
     
-    def visualize_board(self, board=None, title="Game Board", show=True):
+    def visualize_board(self, board=None, title="Game Board", show=True, ax=None):
         '''
         Mines are shown in red, clue values in blue gradient, empty cells in white.
         '''
@@ -175,17 +176,30 @@ class GameEnvironment():
         # Replace mines with a high value for color mapping
         board_display = board_array.copy()
         board_display[board_display == self.MINE] = self.num_mines + 1
+
+        # Create mask for hidden cells
+        is_hidden = (board_array == self.HIDDEN)
         
-        fig, ax = plt.subplots(figsize=(8, 8))
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 8))
+        else:
+            fig = ax.figure
         
         # Create heatmap
+        # Use mask to hide HIDDEN cells
         sns.heatmap(board_display, cmap='YlOrRd', cbar=False, 
                     linewidths=0.5, linecolor='black', ax=ax,
-                    vmin=0, vmax=self.num_mines + 1)
+                    vmin=0, vmax=self.num_mines + 1, mask=is_hidden)
+        
+        # Set background for hidden cells
+        ax.set_facecolor('lightgray')
         
         # Add text annotations for clue values and mines
         for i in range(self.size):
             for j in range(self.size):
+                if is_hidden[i][j]:
+                    continue
+
                 if board_array[i][j] == self.MINE:
                     ax.text(j + 0.5, i + 0.5, 'M', 
                         ha='center', va='center', fontsize=10)
@@ -195,27 +209,81 @@ class GameEnvironment():
         
         ax.set_title(title, fontsize=14)    
 
-        fig_manager = plt.get_current_fig_manager()
-        fig_manager.window.geometry('+500+120')
-
-        plt.tight_layout()
-
         if show:
+            fig_manager = plt.get_current_fig_manager()
+            fig_manager.window.geometry('+500+120')
+
+            plt.tight_layout()
             plt.show(block=True)
 
         return fig, ax
+    
+    def play(self):
+        '''
+        Interactive play mode using matplotlib events for testing.
+        '''
+        fig, ax = plt.subplots(figsize=(8, 8))
+        self.first_click_done = False
+
+        def on_click(event):
+            if event.inaxes != ax: return
+            if getattr(self, 'lost', False) or self.won_game(): return
+
+            if event.xdata is None or event.ydata is None: return
+            
+            # Map coordinates (xdata is col/y, ydata is row/x)
+            y = int(event.xdata)
+            x = int(event.ydata)
+            
+            if not (0 <= x < self.size and 0 <= y < self.size): return
+
+            if not self.first_click_done:
+                self.place_mines((x, y))
+                self.compute_clue_values()
+                self.first_click_done = True
+            
+            self.reveal((x, y))
+            update_view()
+
+        def update_view():
+            ax.clear()
+            board_to_show = self.board if getattr(self, 'lost', False) else self.mask_board
+            
+            title = "Minesweeper"
+            if getattr(self, 'lost', False): 
+                title = "GAME OVER - LOST"
+            elif self.won_game(): 
+                title = "CONGRATULATIONS - WON"
+            
+            self.visualize_board(board=board_to_show, title=title, show=False, ax=ax)
+            fig.canvas.draw()
+
+        fig.canvas.mpl_connect('button_press_event', on_click)
+        update_view()
+        plt.show()
             
 
-def main():
-    game_environment = GameEnvironment(difficulty='hard')
-    board = game_environment.place_mines((5,8))
-    board = game_environment.compute_clue_values()
-    game_environment.reveal((8,9))
+@click.command()
+@click.option('--difficulty', type=click.Choice(['easy', 'medium', 'hard']), default='medium', help='Difficulty level of the game.')
+@click.option('--play', is_flag=True, help='Play the game interactively.')
+def main(difficulty, play):
+    game_environment = GameEnvironment(difficulty=difficulty)
+    if play:
+        game_environment.play()
+    else:
+        start = (random.randint(0, game_environment.size - 1), random.randint(0, game_environment.size - 1))
+        print(f"First click at: {start}")
+        board = game_environment.place_mines(start)
+        board = game_environment.compute_clue_values()
 
-    game_environment.visualize_board(board, "True Board", show=False)
-    game_environment.visualize_board(game_environment.mask_board, "Mask Board After Reveal", show=False)
+        next = (random.randint(0, game_environment.size - 1), random.randint(0, game_environment.size - 1))
+        print(f"Revealing cell at: {next}")
+        game_environment.reveal(next)
 
-    plt.show()
+        game_environment.visualize_board(board, "True Board", show=False)
+        game_environment.visualize_board(game_environment.mask_board, "Mask Board After Reveal", show=False)
+
+        plt.show()
 
 if __name__ == '__main__':
     main()
