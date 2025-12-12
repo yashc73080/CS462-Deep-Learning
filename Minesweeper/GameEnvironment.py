@@ -17,8 +17,10 @@ class GameEnvironment():
         self.num_mines = difficulty_map.get(difficulty, 80)
         self.board = self.initialize_board(0) # The actual game board
         
+        self.MINE = -1
         self.HIDDEN = -2 # any hidden cell
         self.mask_board = self.initialize_board(self.HIDDEN) # The board shown to the player
+        self.lost = False
 
     def initialize_board(self, num):
         '''
@@ -31,6 +33,7 @@ class GameEnvironment():
         Places mines on the board, ensuring the first clicked cell is not a mine.
         '''
         x, y = first_click
+        self.lost = False
         mines_placed = 0
 
         while mines_placed < self.num_mines:
@@ -39,8 +42,8 @@ class GameEnvironment():
             mine_y = random.randint(0, self.size - 1)
 
             # Place mine if it's not the first clicked cell and not already a mine
-            if (mine_x, mine_y) != (x, y) and self.board[mine_x][mine_y] != -1:
-                self.board[mine_x][mine_y] = -1
+            if (mine_x, mine_y) != (x, y) and self.board[mine_x][mine_y] != self.MINE:
+                self.board[mine_x][mine_y] = self.MINE
                 mines_placed += 1
 
         return self.board
@@ -60,7 +63,7 @@ class GameEnvironment():
             for dx, dy in directions:
                 nx, ny = x + dx, y + dy
                 if 0 <= nx < self.size and 0 <= ny < self.size:
-                    if board[nx][ny] == -1:
+                    if board[nx][ny] == self.MINE:
                         clue += 1
             return clue
         
@@ -68,7 +71,7 @@ class GameEnvironment():
         for x in range(self.size):
             for y in range(self.size):
 
-                if self.board[x][y] != -1:
+                if self.board[x][y] != self.MINE:
                     self.board[x][y] = get_clue_value((x, y), self.board)
 
         return self.board
@@ -93,9 +96,10 @@ class GameEnvironment():
 
         value = int(self.board[x][y])
 
-        if value == -1:
+        if value == self.MINE:
             # Game over: reveal full board
             self.mask_board = self.board.clone()
+            self.lost = True
             print("Clicked on a mine! Game over.")
             return False
 
@@ -127,7 +131,7 @@ class GameEnvironment():
                 continue
             if self.mask_board[x][y] != self.HIDDEN:
                 continue
-            if int(self.board[x][y]) == -1:
+            if int(self.board[x][y]) == self.MINE:
                 continue  # never reveal mines with flood fill
 
             # Reveal current cell
@@ -138,8 +142,26 @@ class GameEnvironment():
                 for dx, dy in directions:
                     nx, ny = x + dx, y + dy
                     if 0 <= nx < self.size and 0 <= ny < self.size:
-                        if self.mask_board[nx][ny] == self.HIDDEN and int(self.board[nx][ny]) != -1:
+                        if self.mask_board[nx][ny] == self.HIDDEN and int(self.board[nx][ny]) != self.MINE:
                             q.append((nx, ny))
+
+    def won_game(self):
+        '''
+        Checks if all non-mine cells have been revealed.
+        '''
+        # If we ever clicked a mine, this game is a loss.
+        if getattr(self, 'lost', False):
+            return False
+
+        hidden = (self.mask_board == self.HIDDEN)
+
+        # If there are no hidden cells left, it's only a win if there were no mines
+        if not hidden.any().item():
+            return self.num_mines == 0
+
+        # All remaining hidden cells must be mines.
+        return bool((self.board[hidden] == self.MINE).all().item())
+
     
     def visualize_board(self, board=None, title="Game Board", show=True):
         '''
@@ -152,7 +174,7 @@ class GameEnvironment():
         
         # Replace mines with a high value for color mapping
         board_display = board_array.copy()
-        board_display[board_display == -1] = self.num_mines + 1
+        board_display[board_display == self.MINE] = self.num_mines + 1
         
         fig, ax = plt.subplots(figsize=(8, 8))
         
@@ -164,7 +186,7 @@ class GameEnvironment():
         # Add text annotations for clue values and mines
         for i in range(self.size):
             for j in range(self.size):
-                if board_array[i][j] == -1:
+                if board_array[i][j] == self.MINE:
                     ax.text(j + 0.5, i + 0.5, 'M', 
                         ha='center', va='center', fontsize=10)
                 elif board_array[i][j] > 0:
@@ -188,11 +210,15 @@ def main():
     game_environment = GameEnvironment(difficulty='hard')
     board = game_environment.place_mines((5,8))
     board = game_environment.compute_clue_values()
-    game_environment.visualize_board(board, "True Board", show=False)
     game_environment.reveal((8,9))
+
+    game_environment.visualize_board(board, "True Board", show=False)
     game_environment.visualize_board(game_environment.mask_board, "Mask Board After Reveal", show=False)
 
     plt.show()
 
 if __name__ == '__main__':
     main()
+
+# Run with 
+# $ python Minesweeper/GameEnvironment.py
