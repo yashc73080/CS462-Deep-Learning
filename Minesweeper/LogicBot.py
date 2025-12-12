@@ -1,6 +1,6 @@
 import random
 
-from .GameEnvironment import GameEnvironment
+from Minesweeper.GameEnvironment import GameEnvironment
 
 class LogicBot():
     def __init__(self, difficulty=None, seed=None):
