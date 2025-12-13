@@ -146,6 +146,13 @@ def run_trials(n=50, difficulty="medium"):
     wins = 0
     total_safe = 0
     total_mines = 0
+
+    # New accumulators for averages
+    win_safe_sum = 0
+    win_count = 0
+    loss_safe_sum = 0
+    loss_count = 0
+
     for i in range(n):
         bot = LogicBot(difficulty=difficulty, seed=i)
         safe_opened, mines_triggered = bot.solve()
@@ -153,6 +160,11 @@ def run_trials(n=50, difficulty="medium"):
         env = bot.game_environment
         if env.won_game():
             wins += 1
+            win_count += 1
+            win_safe_sum += safe_opened
+        else:
+            loss_count += 1
+            loss_safe_sum += safe_opened
 
         total_safe += safe_opened
         total_mines += mines_triggered
@@ -162,12 +174,18 @@ def run_trials(n=50, difficulty="medium"):
                 (env.mask_board == env.MINE) |
                 (env.mask_board >= 0)).all().item()
 
+    avg_safe_overall = total_safe / n if n > 0 else 0.0
+    avg_safe_wins = (win_safe_sum / win_count) if win_count > 0 else 0.0
+    avg_safe_losses = (loss_safe_sum / loss_count) if loss_count > 0 else 0.0
+
     print(f"difficulty={difficulty} trials={n} wins={wins} win_rate={wins/n:.3f}")
+    print(f"avg_safe_overall={avg_safe_overall:.2f} avg_safe_wins={avg_safe_wins:.2f} avg_safe_losses={avg_safe_losses:.2f}")
 
 
 def main():
     for difficulty in ['easy', 'medium', 'hard']:
-        run_trials(n=15, difficulty=difficulty)
+        run_trials(n=5, difficulty=difficulty)
+
     
 if __name__ == "__main__":
     main()
