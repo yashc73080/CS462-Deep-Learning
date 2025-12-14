@@ -147,7 +147,7 @@ def run_trials(n=50, difficulty="medium"):
     total_safe = 0
     total_mines = 0
 
-    # New accumulators for averages
+    # Accumulators for averages
     win_safe_sum = 0
     win_count = 0
     loss_safe_sum = 0
@@ -185,7 +185,6 @@ def run_trials(n=50, difficulty="medium"):
 def main():
     for difficulty in ['easy', 'medium', 'hard']:
         run_trials(n=5, difficulty=difficulty)
-
     
 if __name__ == "__main__":
     main()

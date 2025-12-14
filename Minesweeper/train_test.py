@@ -1,10 +1,14 @@
 import os
+from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
 
-def _atomic_torch_save(obj, path: str) -> None:
+
+
+def _atomic_torch_save(obj, path) -> None:
     """Write to a temp file then replace to reduce chance of corrupted checkpoints."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp_path = path + ".tmp"
@@ -62,7 +66,7 @@ def _ensure_BCHW_labels(labels: torch.Tensor):
     return labels.float()
 
 def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=False, device="cpu", 
-                checkpoint_path=None, resume=False, save_every=5, strict_load=True):
+                checkpoint_path=None, resume=False, save_every=1, strict_load=True):
     """
     Train with optional checkpointing.
     num_epochs: number of epochs to run in THIS call. If resuming, training continues from the checkpoint's epoch.
@@ -97,13 +101,17 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
                                                                     scheduler=scheduler, strict=strict_load)
         print(f"Resuming from checkpoint '{checkpoint_path}' at epoch {start_epoch}.")
 
+    if checkpoint_path:
+        os.makedirs("Minesweeper/checkpoints", exist_ok=True)
+        print(f"[checkpoint] path = {checkpoint_path} (save_every={save_every} epochs)")
+
     def _optionally_save(epoch_idx_in_call, absolute_epoch):
         if not checkpoint_path:
             return
         if save_every is None or save_every <= 0:
             return
         if (epoch_idx_in_call + 1) % save_every == 0:
-            # Save every 5 epochs
+            # Save every `save_every` epochs
             save_checkpoint(checkpoint_path, model=model, optimizer=optimizer, scheduler=scheduler, 
                             epoch=absolute_epoch, train_losses=train_losses, test_losses=test_losses)
 
@@ -114,13 +122,16 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
 
         model.train()
         running_loss = 0.0
-        for inputs, labels in train_loader:
+
+        train_prog = tqdm(train_loader, desc=f'Train Epoch {absolute_epoch + 1}', leave=False, dynamic_ncols=True)
+
+        for batch_idx, (inputs, labels) in enumerate(train_prog, start=1):
             inputs = inputs.to(device, non_blocking=True)
             labels = _ensure_BCHW_labels(labels.to(device, non_blocking=True))
 
-            logits = model(inputs)  # (B,1,H,W)
+            logits = model(inputs)
 
-            valid = (labels != -1.0)  # ignore revealed
+            valid = (labels != -1.0)
             targets = torch.clamp(labels, 0.0, 1.0)
 
             loss_map = criterion(logits, targets)
@@ -132,16 +143,17 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
 
             running_loss += loss.item() * inputs.size(0)
 
+            train_prog.set_postfix(loss=float(loss.item()))
+
         scheduler.step()
+        train_epoch_loss = running_loss / len(train_loader.dataset)
+        train_losses.append(train_epoch_loss)
 
-        epoch_loss = running_loss / len(train_loader.dataset)
-        train_losses.append(epoch_loss)
-
-        # --- Evaluation ---
-
+        # --- Validation ---
         model.eval()
-        test_running_loss = 0.0
+        val_running_loss = 0.0
         correct, total = 0, 0
+
         with torch.no_grad():
             for inputs, labels in test_loader:
                 inputs = inputs.to(device, non_blocking=True)
@@ -153,19 +165,16 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
 
                 loss_map = criterion(logits, targets)
                 loss = (loss_map * valid).sum() / valid.sum().clamp_min(1)
-                test_running_loss += loss.item() * inputs.size(0)
+                val_running_loss += loss.item() * inputs.size(0)
 
                 preds = (torch.sigmoid(logits) >= 0.5)
                 correct += ((preds == (targets >= 0.5)) & valid).sum().item()
                 total += valid.sum().item()
 
-        epoch_test_loss = test_running_loss / len(test_loader.dataset)
-        test_losses.append(epoch_test_loss)
+        val_epoch_loss = val_running_loss / len(test_loader.dataset)
+        test_losses.append(val_epoch_loss)
 
-        print(
-            f"Epoch {absolute_epoch + 1} (run {e + 1}/{num_epochs}), "
-                f"Train Loss: {epoch_loss:.4f}, Test Loss: {epoch_test_loss:.4f}"
-        )
+        print(f"Epoch {absolute_epoch + 1}: Train Loss: {train_epoch_loss:.4f} | Val Loss: {val_epoch_loss:.4f}")
 
         _optionally_save(e, absolute_epoch)
 
