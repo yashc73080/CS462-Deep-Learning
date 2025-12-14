@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 
 from Minesweeper.train.train_utils import save_checkpoint, load_checkpoint
 
-def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=False, device="cpu", 
+def train_model(model: nn.Module, train_loader, test_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=False, device="cpu", 
                 checkpoint_path=None, resume=False, save_every=1, strict_load=True):
     """
     Train with optional checkpointing.          
@@ -15,7 +15,7 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
     model.to(device)
 
     # --- Setup ---
-    criterion = nn.BCEWithLogitsLoss(reduction="none")
+    criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
@@ -59,34 +59,18 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
 
         train_prog = tqdm(train_loader, desc=f'Train Epoch {absolute_epoch + 1}', leave=False, dynamic_ncols=True)
 
-        for batch_idx, (inputs, labels) in enumerate(train_prog, start=1):
-            inputs = inputs.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+        for batch_idx, (inputs, move_masks, true_steps) in enumerate(train_prog, start=1):
+            inputs = inputs.to(device, non_blocking=True)      # (B, 1, H, W)
+            move_masks = move_masks.to(device, non_blocking=True) # (B, 1, H, W)
+            true_steps = true_steps.to(device, dtype=torch.float32, non_blocking=True) # (B,)
 
-            logits = model(inputs)
+            predictions_map = model(inputs) # (B, 1, H, W)
 
-            valid = (labels != -1.0)
-            targets = torch.clamp(labels, 0.0, 1.0)
+            # Only need value for the move taken
+            predicted_value = (predictions_map * move_masks).sum(dim=(1, 2, 3)) 
 
-            loss_map = criterion(logits, targets)
-
-            # Explicitly weight the 'Mine' class (0.0) higher to force learning.
+            loss = criterion(predicted_value, true_steps)
             
-            # Create a weight tensor (default 1.0)
-            weights = torch.ones_like(targets)
-            
-            # Assign higher weight to Mines (Label 0.0) -> 5.0 since safe are 5x more common
-            weight_dict = {
-                'easy': 10.0, 
-                'medium': 5.0,
-            }
-            weights[targets == 0.0] = weight_dict.get(difficulty) 
-            
-            # Apply weights to the loss map
-            loss_map = loss_map * weights
-
-            loss = (loss_map * valid).sum() / valid.sum().clamp_min(1)
-
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
@@ -102,27 +86,18 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
         # --- Validation ---
         model.eval()
         val_running_loss = 0.0
-        correct, total = 0, 0
 
         with torch.no_grad(): 
-            for inputs, labels in test_loader:
+            for inputs, move_masks, true_steps in test_loader:
                 inputs = inputs.to(device, non_blocking=True)
-                labels = labels.to(device, non_blocking=True)
+                move_masks = move_masks.to(device, non_blocking=True)
+                true_steps = true_steps.to(device, dtype=torch.float32, non_blocking=True)
 
-                logits = model(inputs)
-                valid = (labels != -1.0)
-                targets = torch.clamp(labels, 0.0, 1.0)
-
-                loss_map = criterion(logits, targets)
-                weights = torch.ones_like(targets)
-                weights[targets == 0.0] = 5.0 
-                loss_map = loss_map * weights
-                loss = (loss_map * valid).sum() / valid.sum().clamp_min(1)
+                predictions_map = model(inputs) 
+                predicted_value = (predictions_map * move_masks).sum(dim=(1, 2, 3)) 
+                
+                loss = criterion(predicted_value, true_steps)
                 val_running_loss += loss.item() * inputs.size(0)
-
-                preds = (torch.sigmoid(logits) >= 0.5)
-                correct += ((preds == (targets >= 0.5)) & valid).sum().item()
-                total += valid.sum().item()
 
         val_epoch_loss = val_running_loss / len(test_loader.dataset)
         test_losses.append(val_epoch_loss)
@@ -147,29 +122,40 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
         plt.ylabel("Loss")
         plt.title("Training and Test Loss")
         plt.legend()
-        plt.savefig(f'Minesweeper/plots/{difficulty}_loss_plot.png')
+        plt.savefig(f'Minesweeper/plots/critic_model_v0_loss_plot.png')
         plt.show()
 
     return model, train_losses, test_losses
 
 
-def test_model(model, test_loader, device="cpu"):
+def test_model(model: nn.Module, test_loader, device="cpu"):
+    """
+    Evaluates the model on the test set for regression (Step Prediction).
+    Returns average MSE Loss.
+    """
     model.to(device)
     model.eval()
+    
+    # Use MSE for evaluation metric
+    criterion = nn.MSELoss()
 
-    correct, total = 0, 0
+    total_loss = 0.0
+    total_samples = 0
+    
     with torch.no_grad():
-        for inputs, labels in test_loader:
+        for inputs, move_masks, true_steps in test_loader:
             inputs = inputs.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+            move_masks = move_masks.to(device, non_blocking=True)
+            true_steps = true_steps.to(device, dtype=torch.float32, non_blocking=True)
 
-            logits = model(inputs)
-            valid = (labels != -1.0)
-            targets = torch.clamp(labels, 0.0, 1.0)
+            predictions_map = model(inputs)
+            predicted_value = (predictions_map * move_masks).sum(dim=(1, 2, 3))
 
-            preds = (torch.sigmoid(logits) >= 0.5)
-            correct += ((preds == (targets >= 0.5)) & valid).sum().item()
-            total += valid.sum().item()
+            loss = criterion(predicted_value, true_steps)
+            
+            total_loss += loss.item() * inputs.size(0)
+            total_samples += inputs.size(0)
 
-    precision = correct / max(total, 1)
-    return precision
+    avg_loss = total_loss / max(total_samples, 1)
+    print(f"Test Set Average MSE: {avg_loss:.4f}")
+    return avg_loss

@@ -10,7 +10,7 @@ import click
 import os
 
 from Minesweeper.GameEnvironment import GameEnvironment
-from Minesweeper.dataset.board_generation_utils import encode_mask_board
+from Minesweeper.dataset.Task1Dataset import encode_mask_board
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, dilation=1, device='cpu'):

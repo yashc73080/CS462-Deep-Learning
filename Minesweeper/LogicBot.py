@@ -40,14 +40,14 @@ class LogicBot():
         return neighbors
     
     def update_after_reveal(self):
-        mask = self.game_environment.mask_board
+        '''Updates internal state after a reveal action'''
+        mask = self.game_environment.mask_board.cpu().numpy()
 
         for x in range(self.size):
             for y in range(self.size):
                 value = int(mask[x][y])
 
                 if value != self.HIDDEN:
-
                     # Remove from remaining list
                     if (x, y) in self.cells_remaining:
                         self.cells_remaining.remove((x, y))
@@ -57,10 +57,8 @@ class LogicBot():
                         self.clue_number[(x, y)] = value
 
     def run_inference(self):
-        '''
-        Runs inference rules until no new information can be inferred
-        '''
-        mask = self.game_environment.mask_board
+        '''Runs inference rules until no new information can be inferred'''
+        mask = self.game_environment.mask_board.cpu().numpy()
 
         changed = True
         while changed:

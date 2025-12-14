@@ -69,5 +69,7 @@ def main():
 if __name__ == "__main__":
     main()
 
+# TODO need to run this for easy model 2
+
 # Run with:
 # python -m Minesweeper.evaluate.evaluate_task1

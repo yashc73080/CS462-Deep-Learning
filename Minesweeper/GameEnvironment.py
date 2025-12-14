@@ -1,4 +1,5 @@
 import torch
+from torch.nn.functional import conv2d
 import matplotlib.pyplot as plt
 import seaborn as sns
 import random
@@ -53,27 +54,19 @@ class GameEnvironment():
         '''
         Computes the clue values for each cell in the board based on adjacent mines.
         '''
-        directions = [(-1, -1), (-1, 0), (-1, 1),
-                        (0, -1),          (0, 1),
-                        (1, -1), (1, 0), (1, 1)]
+        # 1 if mine, 0 otherwise
+        mines = (self.board == self.MINE).float().unsqueeze(0).unsqueeze(0)
         
-        def get_clue_value(position, board):
-            # Helper function to count adjacent mines
-            clue = 0
-            x, y = position
-            for dx, dy in directions:
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < self.size and 0 <= ny < self.size:
-                    if board[nx][ny] == self.MINE:
-                        clue += 1
-            return clue
-        
-        # Compute clue values for non-mine cells
-        for x in range(self.size):
-            for y in range(self.size):
+        # 3x3 kernel of 1s (excluding center)
+        kernel = torch.ones((1, 1, 3, 3), dtype=torch.float32)
+        kernel[0, 0, 1, 1] = 0
 
-                if self.board[x][y] != self.MINE:
-                    self.board[x][y] = get_clue_value((x, y), self.board)
+        # Convolve to count neighbors
+        neighbor_mines = conv2d(mines, kernel, padding=1).squeeze().int()
+
+        # Update board: Where it's NOT a mine, set the value to the neighbor count
+        mask_not_mine = (self.board != self.MINE)
+        self.board[mask_not_mine] = neighbor_mines[mask_not_mine]
 
         return self.board
 
@@ -101,7 +94,7 @@ class GameEnvironment():
             # Game over: reveal full board
             self.mask_board = self.board.clone()
             self.lost = True
-            print("Clicked on a mine! Game over.")
+            # print("Clicked on a mine! Game over.")
             return False
 
         if value > 0:
