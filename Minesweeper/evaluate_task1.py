@@ -32,7 +32,7 @@ def evaluate_neural_net(model, num_games=100, device="cpu", difficulty="medium")
     total_mines = 0
 
     for _ in range(num_games):
-        won, safe_moves, mines = play_one_game_nn(model, device=device, difficulty=difficulty, thres=0.98)
+        won, safe_moves, mines = play_one_game_nn(model, device=device, difficulty=difficulty)
         wins += int(won)
         total_safe += safe_moves
         total_mines += mines
@@ -47,12 +47,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    difficulty = "easy"
+    num_games = 100
+
     # Load trained model
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
-    load_checkpoint('Minesweeper/checkpoints/medium_model.pth', model=model, device=device)
-
-    difficulty = "medium"
-    num_games = 100
+    load_checkpoint(f'Minesweeper/checkpoints/{difficulty}_model.pth', model=model, device=device)
 
     # Evaluate LogicBot
     print("Evaluating LogicBot...")

@@ -16,8 +16,11 @@ class Task1Dataset(Dataset):
         board = bg_utils.generate_board(difficulty=self.difficulty)
 
         # Randomly reveal some safe cells
-        num_reveals = random.randint(3, 10)
-        board = bg_utils.random_reveal(board, num_reveals=num_reveals)
+        if self.difficulty == 'easy':
+            num_moves = random.randint(1, 6)
+        else:
+            num_moves = random.randint(5, 20)
+        board = bg_utils.game_reveal(board, max_moves=num_moves)
 
         input_tensor = bg_utils.encode_mask_board(board)
         label_tensor = bg_utils.make_label_tensor(board)

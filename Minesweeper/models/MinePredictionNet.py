@@ -7,6 +7,7 @@ import numpy as np
 import random
 from time import time
 import click
+import os
 
 from Minesweeper.GameEnvironment import GameEnvironment
 from Minesweeper.dataset.board_generation_utils import encode_mask_board
@@ -90,15 +91,15 @@ class MinePredictionNet(nn.Module):
         return x
     
 @torch.no_grad()
-def neural_policy(model, board: GameEnvironment, device="cpu", thres=0.98):
+def neural_policy(model, board: GameEnvironment, device="cpu"):
     """
-    Choose the hidden cell if a confident move exists. 
+    Choose the hidden cell with the highest probability of being safe.
     """
     model.eval()
 
-    encoded = encode_mask_board(board).unsqueeze(0).to(device)  # (1,C,H,W)
-    logits = model(encoded)                                     # (1,1,H,W)
-    probs = torch.sigmoid(logits)[0, 0]                          # (H,W)
+    encoded = encode_mask_board(board).unsqueeze(0).to(device)
+    logits = model(encoded)
+    probs = torch.sigmoid(logits)[0, 0]
 
     mask = board.mask_board
     hidden = (mask == board.HIDDEN)
@@ -106,16 +107,12 @@ def neural_policy(model, board: GameEnvironment, device="cpu", thres=0.98):
     if not hidden.any():
         return None
 
-    # Only consider hidden cells
+    # Mask out non-hidden cells so we don't pick them
     safe_probs = probs.clone()
-    safe_probs[~hidden] = -1.0
+    safe_probs[~hidden] = -float('inf')
 
-    # Find the most confident safe cell
+    # Find the single safest cell on the board
     max_prob = safe_probs.max().item()
-
-    if max_prob < thres:
-        # Refuse to guess if not confident enough
-        return None
 
     idx = torch.argmax(safe_probs)
     x = idx // board.size
@@ -123,7 +120,7 @@ def neural_policy(model, board: GameEnvironment, device="cpu", thres=0.98):
     return int(x), int(y)
 
 
-def play_one_game_nn(model, device="cpu", difficulty="medium", size=22, thres=0.98):
+def play_one_game_nn(model, device="cpu", difficulty="medium", size=22):
     board = GameEnvironment(size=size, difficulty=difficulty)
 
     start = (random.randint(0, size - 1), random.randint(0, size - 1))
@@ -142,7 +139,7 @@ def play_one_game_nn(model, device="cpu", difficulty="medium", size=22, thres=0.
             mines_triggered += 1
             return False, safe_moves, mines_triggered
 
-        move = neural_policy(model, board, device=device, thres=thres)
+        move = neural_policy(model, board, device=device)
 
         if move is None:
             # Fall back to random
@@ -180,19 +177,21 @@ def main(difficulty):
     random.seed(0)
 
     # Load data
-    train_dataset = Task1Dataset(num_samples=30000, difficulty=difficulty)
-    val_dataset = Task1Dataset(num_samples=3000, difficulty=difficulty)
+    train_dataset = Task1Dataset(num_samples=10000, difficulty=difficulty)
+    val_dataset = Task1Dataset(num_samples=1000, difficulty=difficulty)
 
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
+    num_workers = os.cpu_count() - 4
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=num_workers, pin_memory=True, persistent_workers=True)
+    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=num_workers, pin_memory=True, persistent_workers=True)
 
     # Build and train model
+    print(f'Training MinePredictionNet on {difficulty} difficulty...')
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
-    model, train_losses, val_losses = train_model(model, train_loader, val_loader, num_epochs=10, lr=0.002, decay=0.0001, plot=True, device=device,
-                                                                checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model2.pth', resume=False)
-    acc = test_model(model, val_loader, device=device)
+    model, train_losses, val_losses = train_model(model, difficulty, train_loader, val_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=True, device=device,
+                                                  checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model.pth', resume=False)
+    precision = test_model(model, val_loader, device=device)
 
-    print(f'Final Validation Accuracy: {acc:.4f}')
+    print(f'Final Validation Precision: {precision:.4f}')
 
     end_time = time()
     print(f"Total execution time: {end_time - start_time:.2f} seconds")

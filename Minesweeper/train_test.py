@@ -65,7 +65,7 @@ def _ensure_BCHW_labels(labels: torch.Tensor):
         labels = labels.unsqueeze(1)
     return labels.float()
 
-def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=False, device="cpu", 
+def train_model(model, difficulty, train_loader, test_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=False, device="cpu", 
                 checkpoint_path=None, resume=False, save_every=1, strict_load=True):
     """
     Train with optional checkpointing.
@@ -135,6 +135,22 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
             targets = torch.clamp(labels, 0.0, 1.0)
 
             loss_map = criterion(logits, targets)
+
+            # Explicitly weight the 'Mine' class (0.0) higher to force learning.
+            
+            # Create a weight tensor (default 1.0)
+            weights = torch.ones_like(targets)
+            
+            # Assign higher weight to Mines (Label 0.0) -> 5.0 since safe are 5x more common
+            weight_dict = {
+                'easy': 9.0, 
+                'medium': 5.0,
+            }
+            weights[targets == 0.0] = weight_dict.get(difficulty) 
+            
+            # Apply weights to the loss map
+            loss_map = loss_map * weights
+
             loss = (loss_map * valid).sum() / valid.sum().clamp_min(1)
 
             optimizer.zero_grad(set_to_none=True)
@@ -154,7 +170,7 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
         val_running_loss = 0.0
         correct, total = 0, 0
 
-        with torch.no_grad():
+        with torch.no_grad(): 
             for inputs, labels in test_loader:
                 inputs = inputs.to(device, non_blocking=True)
                 labels = _ensure_BCHW_labels(labels.to(device, non_blocking=True))
@@ -164,6 +180,9 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
                 targets = torch.clamp(labels, 0.0, 1.0)
 
                 loss_map = criterion(logits, targets)
+                weights = torch.ones_like(targets)
+                weights[targets == 0.0] = 5.0 
+                loss_map = loss_map * weights
                 loss = (loss_map * valid).sum() / valid.sum().clamp_min(1)
                 val_running_loss += loss.item() * inputs.size(0)
 
@@ -194,13 +213,7 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
         plt.ylabel("Loss")
         plt.title("Training and Test Loss")
         plt.legend()
-
-        if checkpoint_path:
-            base_name = os.path.basename(checkpoint_path).replace('.py', '')
-            plot_path = f'Minesweeper/loss/{base_name}_loss_plot.png'
-            os.makedirs(os.path.dirname(plot_path), exist_ok=True)
-            plt.savefig(plot_path)
-
+        plt.savefig(f'Minesweeper/loss/{difficulty}_loss_plot.png')
         plt.show()
 
     return model, train_losses, test_losses
@@ -224,4 +237,5 @@ def test_model(model, test_loader, device="cpu"):
             correct += ((preds == (targets >= 0.5)) & valid).sum().item()
             total += valid.sum().item()
 
-    return correct / max(total, 1)
+    precision = correct / max(total, 1)
+    return precision
