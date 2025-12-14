@@ -48,32 +48,31 @@ class MinePredictionNet(nn.Module):
         super().__init__()
 
         # Initial convolutional layer
-        self.conv = nn.Conv2d(input_size[0], 16, kernel_size=3, padding=1)
-        self.bn = nn.BatchNorm2d(16)
+        self.conv = nn.Conv2d(input_size[0], 64, kernel_size=3, padding=1)
+        self.bn = nn.BatchNorm2d(64)
         self.relu = nn.ReLU()
 
         self.layer1 = nn.Sequential(
-            ResidualBlock(16, 16, dilation=1, device=device),
-            ResidualBlock(16, 16, dilation=1, device=device),
+            ResidualBlock(64, 64, dilation=1, device=device),
+            ResidualBlock(64, 64, dilation=1, device=device),
         )
 
         self.layer2 = nn.Sequential(
-            ResidualBlock(16, 32, dilation=2, device=device),
-            ResidualBlock(32, 32, dilation=2, device=device),
+            ResidualBlock(64, 128, dilation=2, device=device),
+            ResidualBlock(128, 128, dilation=2, device=device),
         )
 
         self.layer3 = nn.Sequential(
-            ResidualBlock(32, 64, dilation=4, device=device),
-            ResidualBlock(64, 64, dilation=4, device=device),
+            ResidualBlock(128, 128, dilation=4, device=device),
+            ResidualBlock(128, 128, dilation=4, device=device),
         )
 
         self.layer4 = nn.Sequential(
-            ResidualBlock(64, 64, dilation=8, device=device),
-            ResidualBlock(64, 64, dilation=8, device=device),
+            ResidualBlock(128, 128, dilation=8, device=device),
+            ResidualBlock(128, 128, dilation=8, device=device),
         )
 
-        self.last_conv = nn.Conv2d(64, 1, kernel_size=1)
-
+        self.last_conv = nn.Conv2d(128, 1, kernel_size=1)
         self.to(device)
 
     def forward(self, x):
@@ -164,7 +163,7 @@ def play_one_game_nn(model, device="cpu", difficulty="medium", size=22):
 @click.option('--difficulty', type=click.Choice(['easy', 'medium', 'hard']), default='medium', help='Difficulty level.')
 def main(difficulty):
     from Minesweeper.dataset.Task1Dataset import Task1Dataset
-    from Minesweeper.train_test import train_model, test_model
+    from Minesweeper.train.task1_train_test import train_model, test_model
 
     start_time = time()
 
@@ -177,7 +176,7 @@ def main(difficulty):
     random.seed(0)
 
     # Load data
-    train_dataset = Task1Dataset(num_samples=10000, difficulty=difficulty)
+    train_dataset = Task1Dataset(num_samples=15000, difficulty=difficulty)
     val_dataset = Task1Dataset(num_samples=1000, difficulty=difficulty)
 
     num_workers = os.cpu_count() - 4
@@ -187,8 +186,8 @@ def main(difficulty):
     # Build and train model
     print(f'Training MinePredictionNet on {difficulty} difficulty...')
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
-    model, train_losses, val_losses = train_model(model, difficulty, train_loader, val_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=True, device=device,
-                                                  checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model.pth', resume=False)
+    model, train_losses, val_losses = train_model(model, difficulty, train_loader, val_loader, num_epochs=25, lr=0.001, decay=0.0001, plot=True, device=device,
+                                                  checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model2.pth', save_every=5, resume=False)
     precision = test_model(model, val_loader, device=device)
 
     print(f'Final Validation Precision: {precision:.4f}')

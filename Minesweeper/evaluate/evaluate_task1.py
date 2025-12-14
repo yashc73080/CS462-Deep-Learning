@@ -2,7 +2,7 @@ import torch
 
 from Minesweeper.LogicBot import LogicBot
 from Minesweeper.models.MinePredictionNet import MinePredictionNet, play_one_game_nn
-from Minesweeper.train_test import load_checkpoint
+from Minesweeper.train.task1_train_test import load_checkpoint
 
 def evaluate_logic_bot(num_games=100, difficulty="medium"):
     wins = 0
@@ -52,7 +52,7 @@ def main():
 
     # Load trained model
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
-    load_checkpoint(f'Minesweeper/checkpoints/{difficulty}_model.pth', model=model, device=device)
+    load_checkpoint(f'Minesweeper/checkpoints/{difficulty}_model2.pth', model=model, device=device)
 
     # Evaluate LogicBot
     print("Evaluating LogicBot...")
@@ -68,3 +68,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Run with:
+# python -m Minesweeper.evaluate.evaluate_task1
