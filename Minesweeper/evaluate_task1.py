@@ -1,19 +1,15 @@
-import random
-from tqdm.auto import tqdm
 import torch
 
-from Minesweeper.GameEnvironment import GameEnvironment
 from Minesweeper.LogicBot import LogicBot
 from Minesweeper.models.MinePredictionNet import MinePredictionNet, play_one_game_nn
 from Minesweeper.train_test import load_checkpoint
-
 
 def evaluate_logic_bot(num_games=100, difficulty="medium"):
     wins = 0
     total_safe = 0
     total_mines = 0
 
-    for i in tqdm(range(num_games), desc="Evaluating LogicBot"):
+    for i in range(num_games):
         bot = LogicBot(difficulty=difficulty, seed=i)
         safe_opened, mines_triggered = bot.solve()
 
@@ -35,8 +31,8 @@ def evaluate_neural_net(model, num_games=100, device="cpu", difficulty="medium")
     total_safe = 0
     total_mines = 0
 
-    for _ in tqdm(range(num_games), desc="Evaluating Neural Net"):
-        won, safe_moves, mines = play_one_game_nn(model, device=device, difficulty=difficulty)
+    for _ in range(num_games):
+        won, safe_moves, mines = play_one_game_nn(model, device=device, difficulty=difficulty, thres=0.98)
         wins += int(won)
         total_safe += safe_moves
         total_mines += mines
@@ -55,10 +51,20 @@ def main():
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
     load_checkpoint('Minesweeper/checkpoints/medium_model.pth', model=model, device=device)
 
+    difficulty = "medium"
+    num_games = 100
+
     # Evaluate LogicBot
-    logicbot_results = evaluate_logic_bot(num_games=100, difficulty="medium")
-    print("LogicBot Results:", logicbot_results)
+    print("Evaluating LogicBot...")
+    logicbot_results = evaluate_logic_bot(num_games=num_games, difficulty=difficulty)
 
     # Evaluate Neural Net
-    nn_results = evaluate_neural_net(model, num_games=100, device=device, difficulty="medium")
+    print("\nEvaluating Neural Net...")
+    nn_results = evaluate_neural_net(model, num_games=num_games, device=device, difficulty=difficulty)
+
+    print(f"Results for {difficulty} difficulty for {num_games} games")
+    print("LogicBot Results:", logicbot_results)
     print("Neural Net Results:", nn_results)
+
+if __name__ == "__main__":
+    main()

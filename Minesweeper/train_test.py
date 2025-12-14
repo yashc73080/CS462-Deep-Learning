@@ -194,6 +194,13 @@ def train_model(model, train_loader, test_loader, num_epochs=10, lr=0.001, decay
         plt.ylabel("Loss")
         plt.title("Training and Test Loss")
         plt.legend()
+
+        if checkpoint_path:
+            base_name = os.path.basename(checkpoint_path).replace('.py', '')
+            plot_path = f'Minesweeper/loss/{base_name}_loss_plot.png'
+            os.makedirs(os.path.dirname(plot_path), exist_ok=True)
+            plt.savefig(plot_path)
+
         plt.show()
 
     return model, train_losses, test_losses
