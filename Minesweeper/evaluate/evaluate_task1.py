@@ -47,12 +47,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    difficulty = "easy"
+    difficulty = "medium"
     num_games = 100
 
     # Load trained model
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
-    load_checkpoint(f'Minesweeper/checkpoints/{difficulty}_model2.pth', model=model, device=device)
+    load_checkpoint(f'Minesweeper/checkpoints/{difficulty}_model3.pth', model=model, device=device)
 
     # Evaluate LogicBot
     print("Evaluating LogicBot...")
@@ -69,7 +69,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-# TODO need to run this for easy model 2
 
 # Run with:
 # python -m Minesweeper.evaluate.evaluate_task1

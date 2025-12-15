@@ -97,6 +97,7 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
             weight_dict = {
                 'easy': 10.0, 
                 'medium': 5.0,
+                'hard': 4.0
             }
             weights[targets == 0.0] = weight_dict.get(difficulty) 
             
@@ -165,7 +166,9 @@ def train_model(model: nn.Module, difficulty, train_loader, test_loader, num_epo
         plt.ylabel("Loss")
         plt.title("Training and Test Loss")
         plt.legend()
-        plt.savefig(f'Minesweeper/plots/{difficulty}_loss_plot.png')
+        if checkpoint_path:
+            name = Path(checkpoint_path).stem
+            plt.savefig(f'Minesweeper/plots/task1_{name}_loss_plot.png')
         plt.show()
 
     return model, train_losses, test_losses

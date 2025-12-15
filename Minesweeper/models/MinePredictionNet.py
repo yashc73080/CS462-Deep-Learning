@@ -187,7 +187,7 @@ def main(difficulty):
     print(f'Training MinePredictionNet on {difficulty} difficulty...')
     model = MinePredictionNet(input_size=(12, 22, 22), device=device)
     model, train_losses, val_losses = train_model(model, difficulty, train_loader, val_loader, num_epochs=25, lr=0.001, decay=0.0001, plot=True, device=device,
-                                                  checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model2.pth', save_every=5, resume=False)
+                                                  checkpoint_path=f'Minesweeper/checkpoints/{difficulty}_model3.pth', save_every=5, resume=False)
     precision = test_model(model, val_loader, device=device)
 
     print(f'Final Validation Precision: {precision:.4f}')

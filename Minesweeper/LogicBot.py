@@ -1,4 +1,5 @@
 import random
+import numpy as np
 
 from Minesweeper.GameEnvironment import GameEnvironment
 
@@ -21,75 +22,104 @@ class LogicBot():
         self.inferred_mine = set()
         self.clue_number = dict() # for each opened cell, what was clue number
 
+        self.neighbors_map = self._precompute_neighbors()
+
         self.safe_open_count = 0
         self.game_over = False
 
     # ---- Helpers ---
-    def get_neighbors(self, cell):
-        x, y = cell
-        neighbors = []
+    def _precompute_neighbors(self):
+        neighbors_map = {}
         directions = [(-1, -1), (-1, 0), (-1, 1),
                       (0, -1),          (0, 1),
                       (1, -1), (1, 0), (1, 1)]
-        
-        for dx, dy in directions:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < self.size and 0 <= ny < self.size:
-                neighbors.append((nx, ny))
-        
-        return neighbors
+        for x in range(self.size):
+            for y in range(self.size):
+                nb = []
+                for dx, dy in directions:
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < self.size and 0 <= ny < self.size:
+                        nb.append((nx, ny))
+                neighbors_map[(x, y)] = nb
+        return neighbors_map
+
+    def get_neighbors(self, cell):
+        return self.neighbors_map[cell]
     
     def update_after_reveal(self):
         '''Updates internal state after a reveal action'''
         mask = self.game_environment.mask_board.cpu().numpy()
 
-        for x in range(self.size):
-            for y in range(self.size):
-                value = int(mask[x][y])
-
-                if value != self.HIDDEN:
-                    # Remove from remaining list
-                    if (x, y) in self.cells_remaining:
-                        self.cells_remaining.remove((x, y))
-
-                    # Store clue numbers (including zero)
-                    if value >= 0:
-                        self.clue_number[(x, y)] = value
+        # Find indices where the mask is revealed (not HIDDEN)
+        rows, cols = np.where(mask != self.HIDDEN)
+        
+        for x, y in zip(rows, cols):
+            
+            # Remove from set if present
+            if (x, y) in self.cells_remaining:
+                self.cells_remaining.remove((x, y))
+                
+            # Read the clue number
+            value = int(mask[x][y])
+            if value >= 0:
+                self.clue_number[(x, y)] = value
 
     def run_inference(self):
-        '''Runs inference rules until no new information can be inferred'''
-        mask = self.game_environment.mask_board.cpu().numpy()
-
+        '''
+        Runs inference rules until no new information can be inferred.
+        '''
         changed = True
         while changed:
             changed = False
+            
+            # List to track clues that are fully solved (no hidden neighbors left)
+            solved_clues = []
 
             for (x, y), clue in list(self.clue_number.items()):
                 neighbors = self.get_neighbors((x, y))
 
-                hidden = [n for n in neighbors if n in self.cells_remaining and n not in self.inferred_mine]
-                mines = [n for n in neighbors if n in self.inferred_mine]
-                safe = [n for n in neighbors if n in self.inferred_safe or mask[n[0], n[1]] >= 0]
-                # revealed safe includes: clue numbers and zeros
+                # Don't need to check 'safe' or 'mask' explicitly.
+                # All neighbors are either: 
+                # 1. Unknown (in cells_remaining)
+                # 2. Known Mines (in inferred_mine)
+                # 3. Known Safe (everything else)
+                
+                hidden = []
+                mines_count = 0
+                
+                for n in neighbors:
+                    if n in self.cells_remaining:
+                        hidden.append(n)
+                    elif n in self.inferred_mine:
+                        mines_count += 1
+                
+                # OPTIMIZATION: If no hidden neighbors, this clue provides no new info.
+                # Mark it for removal so we don't check it again next loop.
+                if not hidden:
+                    solved_clues.append((x, y))
+                    continue
 
-                # Rule A — Identify Mines
-                if clue - len(mines) == len(hidden) and len(hidden) > 0:
+                # Rule A - Identify Mines
+                # If (clue - known_mines) equals the number of hidden cells, 
+                if clue - mines_count == len(hidden):
                     for n in hidden:
-                        if n not in self.inferred_mine:
-                            self.inferred_mine.add(n)
-                            if n in self.cells_remaining:
-                                self.cells_remaining.remove(n)
-                            changed = True
+                        self.inferred_mine.add(n)
+                        if n in self.cells_remaining:
+                            self.cells_remaining.remove(n)
+                        changed = True
 
-                # Rule B — Identify Safes
-                total_neighbors = len(neighbors)
-                if (total_neighbors - clue) - len(safe) == len(hidden) and len(hidden) > 0:
+                # Rule B - Identify Safes
+                # If (clue) equals (known_mines), all remaining hidden cells are Safe.
+                elif clue == mines_count:
                     for n in hidden:
-                        if n not in self.inferred_safe:
-                            self.inferred_safe.add(n)
-                            if n in self.cells_remaining:
-                                self.cells_remaining.remove(n)
-                            changed = True
+                        self.inferred_safe.add(n)
+                        if n in self.cells_remaining:
+                            self.cells_remaining.remove(n)
+                        changed = True
+            
+            # Garbage Collect: Remove solved clues from the dictionary
+            for k in solved_clues:
+                del self.clue_number[k]
 
 
     # --- Main solving function ---
@@ -182,7 +212,7 @@ def run_trials(n=50, difficulty="medium"):
 
 def main():
     for difficulty in ['easy', 'medium', 'hard']:
-        run_trials(n=5, difficulty=difficulty)
+        run_trials(n=100, difficulty=difficulty)
     
 if __name__ == "__main__":
     main()

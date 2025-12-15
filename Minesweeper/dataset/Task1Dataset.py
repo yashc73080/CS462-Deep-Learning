@@ -106,8 +106,8 @@ def encode_mask_board(board: GameEnvironment):
 def make_label_tensor(board: GameEnvironment):
     """
     Creates a label grid (H, W).
-    1 = hidden safe cell ADJACENT to a clue
-    0 = hidden mine cell ADJACENT to a clue
+    1 = hidden safe cell adjacent to a clue
+    0 = hidden mine cell adjacent to a clue
     -1 = ignore (revealed cells OR hidden cells far from clues)
     """
     H, W = board.size, board.size

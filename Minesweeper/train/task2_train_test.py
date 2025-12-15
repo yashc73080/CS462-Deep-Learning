@@ -157,5 +157,4 @@ def test_model(model: nn.Module, test_loader, device="cpu"):
             total_samples += inputs.size(0)
 
     avg_loss = total_loss / max(total_samples, 1)
-    print(f"Test Set Average MSE: {avg_loss:.4f}")
     return avg_loss
