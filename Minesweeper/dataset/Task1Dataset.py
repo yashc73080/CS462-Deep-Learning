@@ -25,7 +25,7 @@ class Task1Dataset(Dataset):
             num_moves = random.randint(5, 20)
         board = game_reveal(board, max_moves=num_moves)
 
-        input_tensor = encode_mask_board(board)
+        input_tensor = bg_utils.encode_mask_board(board)
         label_tensor = make_label_tensor(board)
 
         return input_tensor, label_tensor
@@ -67,41 +67,6 @@ def game_reveal(board: GameEnvironment, max_moves=20):
         board.reveal(move)
 
     return board
-
-def encode_mask_board(board: GameEnvironment):
-    """
-    Encodes mask_board into a 12-channel one-hot tensor (C, H, W).
-    
-    Channels:
-      0: hidden
-      1: revealed 0
-      2: revealed 1
-      ...
-      9: revealed 8
-      10: revealed mine
-      11: known mine
-    """
-
-    mask = board.mask_board.long()
-
-    H, W = mask.shape
-    C = 12
-    encoding = torch.zeros((C, H, W), dtype=torch.float32)
-
-    # Hidden cells
-    encoding[0][mask == board.HIDDEN] = 1.0
-
-    # Revealed numeric cells (0 to 8)
-    for n in range(9):
-        encoding[n + 1][mask == n] = 1.0
-
-    # Revealed mine (not for Task 1)
-    encoding[10][mask == board.MINE] = 1.0
-
-    # Known mine (not for Task 1)
-    encoding[11][mask == -5] = 1.0  # Change later
-
-    return encoding
 
 def make_label_tensor(board: GameEnvironment):
     """

@@ -22,7 +22,7 @@ def main():
     val_dataset = Task2Dataset(difficulty='easy', num_samples=2000, cache_file="val_easy_v0.pt")
     val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=12, pin_memory=True, persistent_workers=True)
 
-    model = CriticNet(input_size=(1, 22, 22), device=device)
+    model = CriticNet(input_size=(12, 22, 22), device=device)
 
     ckpt_path = "Minesweeper/checkpoints/critic_model_v0.pth"
     start_epoch, train_losses, val_losses, extra = load_checkpoint(ckpt_path, model=model, device=device)

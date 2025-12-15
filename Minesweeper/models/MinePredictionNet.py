@@ -10,7 +10,7 @@ import click
 import os
 
 from Minesweeper.GameEnvironment import GameEnvironment
-from Minesweeper.dataset.Task1Dataset import encode_mask_board
+import Minesweeper.dataset.board_generation_utils as bg_utils
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, dilation=1, device='cpu'):
@@ -96,7 +96,7 @@ def neural_policy(model, board: GameEnvironment, device="cpu"):
     """
     model.eval()
 
-    encoded = encode_mask_board(board).unsqueeze(0).to(device)
+    encoded = bg_utils.encode_mask_board(board).unsqueeze(0).to(device)
     logits = model(encoded)
     probs = torch.sigmoid(logits)[0, 0]
 
