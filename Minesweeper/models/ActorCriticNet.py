@@ -16,25 +16,23 @@ class CriticNet(nn.Module):
     def __init__(self, input_size=(12,22,22), device='cpu'):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(input_size[0], 64, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.conv1 = nn.Conv2d(input_size[0], 32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
         self.relu = nn.ReLU()
         
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(64)
         
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(64)
-        
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(64)
-        
-        self.conv5 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.bn5 = nn.BatchNorm2d(64)
+        self.dropout = nn.Dropout(0.5) 
 
-        self.dropout = nn.Dropout(0.3)
+        self.conv3 = nn.Conv2d(64, 32, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(32)
+        
+        # Simplified Head
+        self.last_conv = nn.Conv2d(32, 1, kernel_size=1)
 
-        self.last_conv = nn.Conv2d(64, 1, kernel_size=1)
+        self.to(device)
+
     def forward(self, x):
         # Block 1
         x = self.conv1(x)
@@ -45,23 +43,13 @@ class CriticNet(nn.Module):
         x = self.conv2(x)
         x = self.bn2(x)
         x = self.relu(x)
-        x = self.dropout(x)
+        x = self.dropout(x) 
         
         # Block 3
         x = self.conv3(x)
         x = self.bn3(x)
         x = self.relu(x)
-        
-        # Block 4
-        x = self.conv4(x)
-        x = self.bn4(x)
-        x = self.relu(x)
-        x = self.dropout(x) 
-
-        # Block 5
-        x = self.conv5(x)
-        x = self.bn5(x)
-        x = self.relu(x)
+        x = self.dropout(x)
 
         # Output
         x = self.last_conv(x)
@@ -75,6 +63,7 @@ class NeuralBot:
         self.model.eval()
         self.game_environment = GameEnvironment(difficulty=difficulty)
         self.size = self.game_environment.size
+        self.game_over = False
 
     def get_best_move(self):
         board_tensor = bg_utils.encode_mask_board(self.game_environment).unsqueeze(0).to(self.device)
@@ -83,8 +72,6 @@ class NeuralBot:
         with torch.no_grad():
             output = self.model(board_tensor)
             prediction_map = output.squeeze().cpu().numpy()
-
-        print(f"Max Pred: {prediction_map.max():.5f} | Min Pred: {prediction_map.min():.5f}")
 
         # Mask out already revealed cells
         mask = self.game_environment.mask_board.cpu().numpy()
@@ -110,14 +97,12 @@ class NeuralBot:
             move = self.get_best_move()
             self.game_environment.reveal(move)
             if self.game_environment.lost:
+                self.game_over = True
                 break
             survived += 1
 
         return survived, self.game_environment.won_game()
 
-def make_neural_bot(device):
-    # Helper to spawn a fresh NeuralBot
-    return NeuralBot(model_path="Minesweeper/checkpoints/critic_model_medium_v0.pth", difficulty='medium', device=device)
 
 def main():
     from Minesweeper.dataset.Task2Dataset import Task2Dataset
@@ -134,12 +119,13 @@ def main():
     random.seed(0)
 
     difficulty = 'medium'
-    gen = 0
+    gen = 1
 
     # Actor = LogicBot, Critic = CriticNet
     if gen == 0:
+        print('Generation 0 - Training CriticNet with LogicBot data')
         # Load data
-        train_dataset = Task2Dataset(difficulty=difficulty, num_samples=50000, cache_file=f"Minesweeper/dataset/train_{difficulty}_v0.pt", num_workers=12)
+        train_dataset = Task2Dataset(difficulty=difficulty, num_samples=10000, cache_file=f"Minesweeper/dataset/train_{difficulty}_v0.pt", num_workers=12)
         val_dataset = Task2Dataset(difficulty=difficulty, num_samples=5000, cache_file=f"Minesweeper/dataset/val_{difficulty}_v0.pt", num_workers=12)
 
         train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True, persistent_workers=False)
@@ -148,17 +134,18 @@ def main():
         # Build and train model
         print(f'Training CriticNet on {difficulty} difficulty...')
         model = CriticNet(input_size=(12,22,22), device=device)
-        model, train_losses, val_losses = train_model(model, train_loader, val_loader, num_epochs=10, lr=0.001, decay=0.0001, plot=True, device=device,
+        model, train_losses, val_losses = train_model(model, train_loader, val_loader, num_epochs=10, lr=0.0005, decay=0.0001, plot=True, device=device,
                                                     checkpoint_path=f'Minesweeper/checkpoints/critic_model_{difficulty}_v0.pth', save_every=1, resume=False)
         accuracy = test_model(model, val_loader, device=device)
         print(f'Test Accuracy: {accuracy:.4f}')
     
     # Actor = NeuralBot (using CriticNet), Critic = CriticNet
     elif gen == 1:
+        print('Generation 1 - Training CriticNet with NeuralBot data')
         # Load data
-        bot_maker = make_neural_bot(device)
-        train_dataset = Task2Dataset(difficulty=difficulty, num_samples=50000, cache_file=f"Minesweeper/dataset/train_{difficulty}_v1.pt", bot_maker=bot_maker)
-        val_dataset = Task2Dataset(difficulty=difficulty, num_samples=5000, cache_file=f"Minesweeper/dataset/val_{difficulty}_v1.pt", bot_maker=bot_maker)
+        new_bot = NeuralBot(model_path=f"Minesweeper/checkpoints/critic_model_{difficulty}_v0.pth", difficulty=difficulty, device=device)
+        train_dataset = Task2Dataset(difficulty=difficulty, num_samples=10000, cache_file=f"Minesweeper/dataset/train_{difficulty}_v1.pt", neural_bot=new_bot)
+        val_dataset = Task2Dataset(difficulty=difficulty, num_samples=5000, cache_file=f"Minesweeper/dataset/val_{difficulty}_v1.pt", neural_bot=new_bot)
 
         num_workers = 0
         train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=num_workers, pin_memory=True, persistent_workers=False)

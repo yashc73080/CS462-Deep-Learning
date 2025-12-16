@@ -19,17 +19,20 @@ def evaluate_thinking_net(model, num_games=100, device="cpu", difficulty="medium
     wins = 0
     total_safe = 0
     total_mines = 0
+    safe_moves_per_game = []
 
     for i in tqdm(range(num_games), desc="Playing game"):
         won, safe_moves, mines = play_one_game_thinking(model, device=device, difficulty=difficulty, steps=steps)
         wins += int(won)
         total_safe += safe_moves
         total_mines += mines
+        safe_moves_per_game.append(safe_moves)
 
     return {
         "win_rate": wins / num_games,
         "avg_safe_moves": total_safe / num_games,
         "avg_mines_triggered": total_mines / num_games,
+        "safe_moves_std": np.std(safe_moves_per_game),
     }
 
 
@@ -217,12 +220,12 @@ def main():
     print("ThinkingNet Results:", thinking_results)
 
     # Load data
-    val_dataset = Task1Dataset(num_samples=100, difficulty=difficulty)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
+    # val_dataset = Task1Dataset(num_samples=100, difficulty=difficulty)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
 
-    analyze_loss_over_time(thinking_model, val_loader, device, difficulty, steps)
-    visualize_thought_process(thinking_model, val_loader, device, difficulty, steps)
-    analyze_performance_over_time(thinking_model, device, difficulty, max_steps=steps)
+    # analyze_loss_over_time(thinking_model, val_loader, device, difficulty, steps)
+    # visualize_thought_process(thinking_model, val_loader, device, difficulty, steps)
+    # analyze_performance_over_time(thinking_model, device, difficulty, max_steps=steps)
 
 if __name__ == "__main__":
     main()

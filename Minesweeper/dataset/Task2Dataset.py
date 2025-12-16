@@ -38,27 +38,31 @@ def step_bot(bot, move):
         bot.run_inference()
 
 def simulate_worker(args):
-    random.seed(os.getpid())
-    np.random.seed(os.getpid() % 123456789)
+    difficulty, neural_bot = args 
 
-    difficulty, bot_maker = args 
-
-    # Initialize LogicBot
-    if bot_maker:
-        bot = bot_maker()
+    if neural_bot:
+        bot = neural_bot
+        bot.game_environment = bg_utils.generate_board(size=bot.size, difficulty=difficulty)
+        bot.game_over = False
     else:
         bot = LogicBot(difficulty=difficulty)
+        start_x = random.randint(0, bot.size - 1)
+        start_y = random.randint(0, bot.size - 1)
+        bot.game_environment.place_mines((start_x, start_y))
+        bot.game_environment.compute_clue_values()
+        bot.game_environment.reveal((start_x, start_y))
+        
+        bot.update_after_reveal()
+        bot.run_inference()
 
-    # Handle immediate game over
-    if bot.game_over:
-        board_input = bg_utils.encode_mask_board(bot.game_environment)
-        return board_input, torch.zeros((bot.size, bot.size)).unsqueeze(0), 0.0
+    if bot.game_environment.lost: 
+        return None
 
-    # Fast Forward random amount
+    # Fast Forward 
     moves_made = 0
-    max_moves = random.randint(0, (bot.size * bot.size) // 4)
+    max_moves = random.randint(5, 15) 
 
-    while not bot.game_over and moves_made < max_moves:
+    while not bot.game_environment.lost and not bot.game_environment.won_game() and moves_made < max_moves:
         move = get_bot_move(bot) 
         if move is None:
             break
@@ -69,11 +73,13 @@ def simulate_worker(args):
 
         moves_made += 1
 
+    if bot.game_environment.lost or bot.game_environment.won_game():
+        return None 
+        
     mask_board = bot.game_environment.mask_board
     is_hidden = (mask_board == bot.game_environment.HIDDEN)
     is_revealed = (mask_board >= 0).float()
     
-    # 3x3 kernel to count revealed neighbors
     kernel = torch.ones((1, 1, 3, 3), device=mask_board.device)
     neighbor_counts = F.conv2d(is_revealed.unsqueeze(0).unsqueeze(0), kernel, padding=1)
     
@@ -82,17 +88,14 @@ def simulate_worker(args):
     all_possible_moves = torch.nonzero(is_hidden, as_tuple=False).tolist()
 
     if not all_possible_moves or bot.game_environment.lost:
-        # Game ended during fast-forward
-        current_board = bg_utils.encode_mask_board(bot.game_environment)
-        return current_board, torch.zeros((bot.size, bot.size)).unsqueeze(0), 0.0
+        return None
 
-    # 80% chance to pick from frontier if available, otherwise random
+    # Pick Intervention Move
     if frontier_moves and random.random() < 0.8:
         target_move = random.choice(frontier_moves)
     else:
         target_move = random.choice(all_possible_moves)
     
-    # Convert to tuple for indexing
     target_move = tuple(target_move) 
     
     # Save Inputs
@@ -106,26 +109,24 @@ def simulate_worker(args):
     survival_steps = 0
     if not bot.game_environment.lost:
         survival_steps += 1
-
-        # Finish the game manually
         while not bot.game_environment.won_game() and not bot.game_environment.lost:
             move = get_bot_move(bot) 
-            if move is None:
-                break
-
+            if move is None: break
             step_bot(bot, move) 
-            if bot.game_environment.lost:
-                break
-
+            if bot.game_environment.lost: break
             survival_steps += 1
     
-    # Normalize the target to help training stability (dividing by 100)
-    return current_board, move_mask.unsqueeze(0), float(survival_steps) / 100.0
+    # Apply Safety Bonus (0.5) so model learns 0.0 vs 0.5+
+    if survival_steps == 0:
+        label_value = 0.0
+    else:
+        label_value = 0.5 + (float(survival_steps) / 200.0)
 
+    return current_board, move_mask.unsqueeze(0), label_value
 
 class Task2Dataset(Dataset):
     def __init__(self, num_samples, difficulty='medium', cache_file="task2_data.pt", 
-                 force_regenerate=False, bot_maker=None, num_workers=0):
+                 force_regenerate=False, neural_bot=None, num_workers=0):
         """
         num_workers: 
           0 = Run sequentially in main process (Safe for CUDA/GPU)
@@ -133,7 +134,7 @@ class Task2Dataset(Dataset):
         """
         self.num_samples = num_samples
         self.difficulty = difficulty
-        self.bot_maker = bot_maker
+        self.neural_bot = neural_bot
         self.num_workers = num_workers
         self.data = []
 
@@ -150,21 +151,48 @@ class Task2Dataset(Dataset):
             self.generate_dataset(cache_file)
 
     def generate_dataset(self, cache_file):
-        print(f"Generating {self.num_samples} samples. (Workers: {self.num_workers})")
+        # Define attempts = num_samples * 5 because we discard ~75% of games 
+        attempts = self.num_samples * 5
+        print(f"Generating {self.num_samples} samples (Max Attempts: {attempts}, Workers: {self.num_workers})")
         
-        worker_args = [(self.difficulty, self.bot_maker) for _ in range(self.num_samples)]
+        worker_args = [(self.difficulty, self.neural_bot) for _ in range(attempts)]
         self.data = []
 
         if self.num_workers > 0:
-            # MULTIPROCESSING
-            with mp.Pool(processes=self.num_workers) as pool:
-                for result in tqdm(pool.imap_unordered(simulate_worker, worker_args), total=self.num_samples, desc="Simulating Games"):
-                    self.data.append(result)
+            pool = mp.Pool(processes=self.num_workers)
+            iterator = pool.imap_unordered(simulate_worker, worker_args, chunksize=10)
         else:
-            # SEQUENTIAL
-            for args in tqdm(worker_args, desc="Simulating Games (Seq)"):
-                self.data.append(simulate_worker(args))
+            iterator = (simulate_worker(arg) for arg in worker_args)
         
+        avg_label = 0.0
+        
+        pbar = tqdm(total=self.num_samples, desc="Collecting Valid Games")
+        
+        for result in iterator:
+            if result is not None:
+                self.data.append(result)
+                avg_label += result[2]
+                pbar.update(1)
+                
+                if len(self.data) >= self.num_samples:
+                    break
+        
+        pbar.close()
+        
+        if self.num_workers > 0:
+            pool.close()
+            pool.join()
+
+        if len(self.data) == 0:
+            raise RuntimeError("Generated 0 valid samples! Check if Bot is losing immediately.")
+        
+        avg_label /= len(self.data)
+        print(f"Collected {len(self.data)} samples. Average Label (Normalized Steps): {avg_label:.4f}")
+        
+        if avg_label < 0.01:
+            print("\nWARNING: Average label is extremely low. The bot might be dying immediately in every game.")
+            print("Check if the inputs to the model are correct or if the difficulty is too high.\n")
+
         print(f"Saving dataset to {cache_file}...")
         torch.save(self.data, cache_file)
 
