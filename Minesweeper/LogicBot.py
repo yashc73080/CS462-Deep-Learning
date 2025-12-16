@@ -165,7 +165,7 @@ class LogicBot():
         # Compute summary statistics after game over
         # safe_open_count: exact number of non-mine cells opened, not total number of safe cells 
         mines_triggered = 1 if self.game_environment.lost else 0
-        print(f"Game over. Safe opened: {self.safe_open_count}, Mines triggered: {mines_triggered}")
+        # print(f"Game over. Safe opened: {self.safe_open_count}, Mines triggered: {mines_triggered}")
 
         return self.safe_open_count, mines_triggered
     
